@@ -1,0 +1,46 @@
+# VS temp files
+DoubleList/.vs
+DoubleList/.vs/
+DoubleList/.vs\
+
+
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+*.db
+DoubleList/.vs/DoubleList/v16/TestStore/0/000.testlog
+DoubleList/DoubleList/Debug/DoubleList.log
+DoubleList/DoubleList/Debug/DoubleList.tlog/CL.command.1.tlog
+DoubleList/DoubleList/Debug/DoubleList.tlog/CL.read.1.tlog
+DoubleList/DoubleList/Debug/DoubleList.tlog/CL.write.1.tlog
+DoubleList/DoubleList/Debug/DoubleList.tlog/DoubleList.lastbuildstate
+DoubleList/DoubleList/Debug/DoubleList.tlog/unsuccessfulbuild

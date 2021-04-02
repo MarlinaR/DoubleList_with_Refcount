@@ -1,0 +1,21 @@
+[2021-04-02 16:31:31] [info] Start Program:
+Path:"C:\\Users\\Arina\\Desktop\\DoubleList\\DoubleList\\Debug\\DoubleList.exe"
+Arguments:
+Working directory: "C:\\Users\\Arina\\Desktop\\DoubleList\\DoubleList\\DoubleList\\"
+Modules: Selected: C:\Users\Arina\Desktop\DoubleList\DoubleList\Debug\DoubleList.exe Excluded: 
+Sources: Selected: C:\Users\Arina\Desktop\DoubleList\DoubleList\DoubleList Excluded: catch 
+Log Level: Normal
+Cover Children: 0
+Aggregate by file: 1
+Continue after C++ exception: 0
+Optimized build support: 0
+Export: binary C:\Users\Arina\AppData\Local\Temp\k5zmqnef.bzb 
+Input coverage: 
+Unified diff: 
+Excluded line regular expressions: 
+Substitute pdb source paths: 
+
+[2021-04-02 16:31:31] [info] Module: C:\Users\Arina\Desktop\DoubleList\DoubleList\Debug\DoubleList.exe is selected because it matches selected pattern: C:\Users\Arina\Desktop\DoubleList\DoubleList\Debug\DoubleList.exe
+[2021-04-02 16:31:31] [info] ----------------------------------------------------
+[2021-04-02 16:31:31] [info] Coverage binary generated in file: C:\Users\Arina\AppData\Local\Temp\k5zmqnef.bzb
+[2021-04-02 16:31:31] [info] ----------------------------------------------------
