@@ -76,13 +76,18 @@ public:
     ListIterator& operator++() {
         std::unique_lock<std::shared_mutex> lock(list->m);
         if (!ptr->next) throw (std::out_of_range("Invalid index"));
-        *this = ListIterator(this->ptr->next, list);
 
-        if (ptr) {
-            while (this->ptr->deleted && ptr->next) {
-                *this = ListIterator(this->ptr->next, list);
+        Node<value_type>* prevNode = ptr;
+        Node<value_type>* newNode = ptr->next;
+        if (newNode) {
+            while (newNode->deleted && newNode->next) {
+                newNode = newNode->next;
             }
         }
+        list->inc_ref_count(newNode);
+        this->ptr = newNode;
+        list->dec_ref_count(prevNode);
+
         return *this;
     }
 
@@ -91,17 +96,24 @@ public:
         std::unique_lock<std::shared_mutex> lock(list->m);
         if (!ptr->next) throw (std::out_of_range("Invalid index"));
 
+
+        Node<value_type>* prevNode = ptr;
         ListIterator new_ptr(*this);
 
-        if (new_ptr.ptr->next) {
-
-            *this = ListIterator(new_ptr.ptr->next, list);
-
-            while (ptr->deleted && ptr->next) {
-                *this = ListIterator(this->ptr->next, list);
+        if (ptr->next)
+        {
+            Node<value_type>* newNode = ptr->next;
+            if (newNode) {
+                while (newNode->deleted && newNode->next) {
+                    newNode = newNode->next;
+                }
             }
+            list->inc_ref_count(newNode);
+            this->ptr = newNode;
+            list->dec_ref_count(prevNode);
         }
         return new_ptr;
+
     }
 
     // prefix --
@@ -109,13 +121,18 @@ public:
         std::unique_lock<std::shared_mutex> lock(list->m);
         if (!ptr->prev->prev) throw std::out_of_range("Invalid index");
 
-        *this = ListIterator(this->ptr->prev, list);
-
-        if (ptr) {
-            while (this->ptr->deleted && ptr->prev) {
-                *this = ListIterator(this->ptr->prev, list);
+        Node<value_type>* prevNode = ptr;
+        Node<value_type>* newNode = ptr->prev;
+        if (newNode) {
+            while (newNode->deleted && newNode->prev) {
+                newNode = newNode->prev;
             }
         }
+        list->inc_ref_count(newNode);
+        this->ptr = newNode;
+        list->dec_ref_count(prevNode);
+
+
         return *this;
     }
 
@@ -124,28 +141,36 @@ public:
         std::unique_lock<std::shared_mutex> lock(list->m);
         if (!ptr->prev->prev) throw std::out_of_range("Invalid index");
 
+
+        Node<value_type>* prevNode = ptr;
         ListIterator new_ptr(*this);
 
-        if (new_ptr.ptr->prev) {
-            *this = ListIterator(new_ptr.ptr->prev, list);
-            while (ptr->deleted && ptr->prev)
-            {
-                *this = ListIterator(this->ptr->prev, list);
+        Node<value_type>* newNode = ptr->prev;
+        if (newNode) {
+            while (newNode->deleted && newNode->prev) {
+                newNode = newNode->prev;
             }
         }
+
+        list->inc_ref_count(newNode);
+        this->ptr = newNode;
+        list->dec_ref_count(prevNode);
+
+
+
         return new_ptr;
     }
 
     friend bool operator==(const ListIterator<ValueType>& a, const ListIterator<ValueType>& b) {
         if (a.list == b.list)
         {
-            std::shared_lock<std::shared_mutex> lock(b.list->m, std::try_to_lock);
+            std::shared_lock<std::shared_mutex> lock(b.list->m);
             return a.ptr == b.ptr;
         }
         else
         {
-            std::shared_lock<std::shared_mutex> lock1(a.list->m, std::try_to_lock);
-            std::shared_lock<std::shared_mutex> lock2(b.list->m, std::try_to_lock);
+            std::shared_lock<std::shared_mutex> lock1(a.list->m);
+            std::shared_lock<std::shared_mutex> lock2(b.list->m);
             return a.ptr == b.ptr;
         }
     }
@@ -153,19 +178,19 @@ public:
     friend bool operator!=(const ListIterator<ValueType>& a, const ListIterator<ValueType>& b) {
         if (a.list == b.list)
         {
-            std::shared_lock<std::shared_mutex> lock(b.list->m, std::try_to_lock);
+            std::shared_lock<std::shared_mutex> lock(b.list->m);
             return !(a.ptr == b.ptr);
         }
         else
         {
-            std::shared_lock<std::shared_mutex> lock1(a.list->m, std::try_to_lock);
-            std::shared_lock<std::shared_mutex> lock2(b.list->m, std::try_to_lock);
+            std::shared_lock<std::shared_mutex> lock1(a.list->m);
+            std::shared_lock<std::shared_mutex> lock2(b.list->m);
             return !(a.ptr == b.ptr);
         }
     }
 
     operator bool() {
-        std::shared_lock<std::shared_mutex> lock(list->m, std::try_to_lock);
+        std::shared_lock<std::shared_mutex> lock(list->m);
         return ptr;
     }
 

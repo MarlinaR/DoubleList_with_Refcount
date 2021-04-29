@@ -234,8 +234,8 @@ TEST_CASE("LinkedList sample", "[CLinkedList]") {
             // Single-thread operations
             auto startSingle = std::chrono::high_resolution_clock::now();
             for (unsigned long i = 0l; i < totalOperations; i++) {
-                list.size(); list.size(); list.size(); list.size(); list.size(); list.size();
-                list.empty(); list.empty(); list.empty(); list.empty(); list.empty(); list.empty();
+                list.size(); list.size(); list.size(); list.size(); list.size(); list.size(); list.size();
+                list.empty(); list.empty(); list.empty(); list.empty(); list.empty(); list.empty(); list.empty();
             }
             auto endSingle = std::chrono::high_resolution_clock::now();
 
@@ -271,7 +271,7 @@ TEST_CASE("LinkedList sample", "[CLinkedList]") {
 
                     std::cout << "Running checks [ERASE, it++]\n";
                     auto it = list.begin();
-                    for (int i = 0; i < elements / (threads * 2); i++)
+                    for (int i = 0; i < elements / (threads * 3); i++)
                     {
                         it++;
                         it = list.erase(it);

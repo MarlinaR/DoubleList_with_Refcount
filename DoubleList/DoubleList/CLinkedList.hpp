@@ -75,7 +75,7 @@ public:
 
     CLinkedList(const CLinkedList& other) = delete;
     CLinkedList(CLinkedList&& x) = delete;
-    CLinkedList(std::initializer_list<value_type> l) :CLinkedList() {
+    CLinkedList(std::initializer_list<value_type> l) : CLinkedList() {
         std::unique_lock<std::shared_mutex> lock(m);
         for (auto i = l.begin(); i < l.end(); i++)
         {
@@ -162,7 +162,7 @@ public:
 
     iterator erase(iterator position) {
         std::unique_lock<std::shared_mutex> lock(m);
-        return erase_internal(position);
+        return internal_erase(position);
     }
 
     iterator insert(iterator ptr, value_type value) {
@@ -192,9 +192,9 @@ public:
     void clear() noexcept {
         std::unique_lock<std::shared_mutex> lock(m);
         iterator current(head->next, this);
-        while (current != iterator(tail, this))
+        while (current.ptr != tail)
         {
-            current = erase_internal(current);
+            current = internal_erase(current);
         }
     }
 
@@ -204,23 +204,25 @@ public:
     }
 
     std::shared_mutex m;
+
 private:
-    iterator insert_internal(iterator ptr, value_type value) {
-        if (!ptr) return ptr;
+
+    iterator insert_internal(iterator it, value_type value) {
+        if (it.ptr == nullptr) return it;
 
         Node<ValueType>* node = new Node<value_type>{ std::move(value), 2 };
 
-        node->prev = ptr.ptr->prev;
-        node->next = ptr.ptr;
-        ptr.ptr->prev->next = node;
-        ptr.ptr->prev = node;
+        node->prev = it.ptr->prev;
+        node->next = it.ptr;
+        it.ptr->prev->next = node;
+        it.ptr->prev = node;
 
-        iterator it(node, this);
+        iterator iter(node, this);
         m_size++;
-        return it;
+        return iter;
     }
 
-    iterator erase_internal(iterator position) {
+    iterator internal_erase(iterator position) {
         if (position.ptr->deleted) {
             return position;
         }
@@ -245,7 +247,7 @@ private:
         }
 
         m_size--;
-        /*std::cout << m_size << " ";*/
+        std::cout << m_size << " ";
 
         position.ptr->deleted = true;
         dec_ref_count(position.ptr);
