@@ -72,59 +72,7 @@ TEST_CASE("Core mechanics tests", "[Base]") {
         REQUIRE(*it == 10);
     }
 
-    SECTION("Initializer list constructor, destructor") {
-        LinkedList<int> l2{ 1,2,3,4,5 };
-        auto it = l2.begin();
-        REQUIRE(*it++ == 1);
-        REQUIRE(*it++ == 2);
-        REQUIRE(*it == 3);
 
-        LinkedList<bool>* l3 = new LinkedList<bool>{};
-        l3->push_back(true);
-        REQUIRE(*(l3->begin()) == true);
-        delete l3;
-    }
-
-    SECTION("Checking ref_count working") {
-        LinkedList<int> list{ 1,2,3,4,5 };
-
-        auto it = list.begin();
-        REQUIRE(*it == 1);
-        it++;
-        ++it;
-
-        REQUIRE(*it == 3);
-
-        it--;
-        --it;
-        REQUIRE(*it == 1);
-
-        ++it;
-        auto it_2 = it;
-        auto it_3 = it_2;
-        it = list.erase(it);
-        it = list.erase(it);
-
-        it_2++;
-        REQUIRE(*it_2 == 4);
-        ++it_3;
-        REQUIRE(*it == 4);
-
-        list.insert_after(it_3, 2);
-        list.insert_after(it_3, 3);
-        it_3 = list.erase(++it_3);
-        //it_3--;
-        it_3 = list.erase(it_3);
-
-        it_3--;
-
-        it_3 = it_2;
-
-        it_3--;
-        --it_2;
-        REQUIRE(*it_2 == 1);
-        REQUIRE(*it_3 == 1);
-    }
 
     SECTION("==, !=") {
         LinkedList<int> list{ 1,2,3,4,5 };
@@ -216,7 +164,7 @@ TEST_CASE("Core mechanics tests", "[Base]") {
         int tries = 1;
         while (tries--) {
             auto pushes = 10000;
-            //auto pushes = 1000000;
+
             LinkedList<int>* list = new LinkedList<int>();
             for (int i = 0; i < pushes; i++) {
                 list->push_back(i);
@@ -226,7 +174,6 @@ TEST_CASE("Core mechanics tests", "[Base]") {
             for (int j = 0; j < 1000000; j++) {
                 it = list->erase(it);
             }
-            delete list;
         }
     }
 }
@@ -291,7 +238,7 @@ void ThreadedTest1(const int threads, int tries, const int totalPushes) {
             join_all(deleters);
         }
 
-
+        //for (auto it = list->begin(); it != list->end(); it++) cout << *it;
 
         REQUIRE(list->Size() == threads * 2);
         delete list;
@@ -324,6 +271,9 @@ TEST_CASE("Threaded tests", "[threads]") {
             threadAmount *= 2;
         }
     }
+
 }
+
+
 
 

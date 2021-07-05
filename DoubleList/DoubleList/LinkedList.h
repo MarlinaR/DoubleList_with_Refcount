@@ -24,10 +24,15 @@ template<typename T>
 class LinkedList;
 
 template<typename T>
+class Purgatory;
+
+template<typename T>
 class Node
 {
     friend class ListIterator<T>;
     friend class LinkedList<T>;
+    friend class Purgatory<T>;
+
 
 private:
     Node(LinkedList<T>* _list) : list(_list) { }
@@ -42,10 +47,15 @@ private:
 
     void release() {
 
-        if (--ref_count != 0) {
-            return;
+        shared_lock<std::shared_mutex> global_lock(list->global_mutex);
+
+        int old_ref_count = --ref_count;
+
+        if (old_ref_count == 0) {
+            list->purgatory->put_purgatory(this);
         }
-        list->DeleteNode(this);
+
+        global_lock.unlock();
 
     }
 
@@ -56,17 +66,180 @@ private:
     T            value;
     atomic<int>  ref_count = 0;
     atomic<bool> deleted = false;
-    Node<T>*     prev;
-    Node<T>*     next;
+    atomic<int> purged = 0;
+    Node<T>* prev;
+    Node<T>* next;
     shared_mutex m;
     LinkedList<T>* list;
+};
+
+template <typename T>
+class Purgatory
+{
+private:
+    friend class ListIterator<T>;
+    friend class LinkedList<T>;
+    friend class Node<T>;
+
+public:
+
+    template <typename T>
+    class PurgatoryNode
+    {
+    public:
+        PurgatoryNode(Node<T>* value) :
+            value(value) { }
+
+        Node<T>* value = nullptr;
+        PurgatoryNode* next = nullptr;
+    };
+
+    Purgatory(LinkedList<T>* list_ref) :
+        list_ref(list_ref),
+        head(nullptr),
+        cleanThread(&Purgatory::clean_purgatory, this) { }
+
+    ~Purgatory()
+    {
+        set_deleted();
+        cleanThread.join();
+    }
+
+    void set_deleted()
+    {
+        pur_deleted = true;
+    }
+
+    void put_purgatory(Node<T>* value)
+    {
+        PurgatoryNode<T>* node = new PurgatoryNode<T>(value);
+
+        do {
+            node->next = head.load();
+        } while (!head.compare_exchange_strong(node->next, node));
+    }
+
+    void remove(PurgatoryNode<T>* prev, PurgatoryNode<T>* node)
+    {
+        prev->next = node->next;
+
+        free(node);
+    }
+
+    void deleted_node(PurgatoryNode<T>* node)
+    {
+        Node<T>* prev = node->value->prev;
+        Node<T>* next = node->value->next;
+
+        if (prev != nullptr)
+        {
+            prev->release();
+        }
+
+        if (next != nullptr)
+        {
+            next->release();
+        }
+
+        free(node->value);
+        free(node);
+    }
+
+    void clean_purgatory()
+    {
+        do
+        {
+            // first faze
+            unique_lock<std::shared_mutex> lock(list_ref->global_mutex);
+
+            PurgatoryNode<T>* purge_start = this->head;
+
+            lock.unlock();
+
+            if (purge_start != nullptr)
+            {
+
+                PurgatoryNode<T>* prev = purge_start;
+                for (PurgatoryNode<T>* node = purge_start; node != nullptr;)
+                {
+                    PurgatoryNode<T>* cur_val = node;
+                    node = node->next;
+
+                    if (cur_val->value->ref_count > 0 || cur_val->value->purged == 1)
+                    {
+                        remove(prev, cur_val);
+                    }
+                    else
+                    {
+                        cur_val->value->purged = 1;
+                        prev = cur_val;
+                    }
+                }
+                prev->next = nullptr;
+
+                // second faze
+
+                lock.lock();
+
+                PurgatoryNode<T>* new_purge_start = this->head;
+
+                if (new_purge_start == purge_start)
+                {
+
+                    this->head = nullptr;
+                }
+
+                lock.unlock();
+
+                prev = new_purge_start;
+                PurgatoryNode<T>* node = new_purge_start;
+                while (node != purge_start)
+                {
+                    PurgatoryNode<T>* cur_val = node;
+                    node = node->next;
+
+                    if (cur_val->value->purged == 1)
+                    {
+                        remove(prev, cur_val);
+                    }
+                    else
+                    {
+                        prev = cur_val;
+                    }
+                }
+
+                prev->next = nullptr;
+
+                for (PurgatoryNode<T>* node = purge_start; node != nullptr;)
+                {
+                    PurgatoryNode<T>* cur_val = node;
+                    node = node->next;
+
+                    deleted_node(cur_val);
+                }
+            }
+
+            if (!pur_deleted)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        } while (!pur_deleted || head.load() != nullptr);
+    }
+
+    std::thread cleanThread;
+    std::atomic<PurgatoryNode<T>*> head;
+    std::atomic<int32_t> global_counter = 0;
+    LinkedList<T>* list_ref;
+    bool pur_deleted = false;
 };
 
 template<typename T>
 class ListIterator
 {
-public:
     friend class LinkedList<T>;
+    friend class Purgatory<T>;
+    friend class Node<T>;
+public:
 
     ListIterator() noexcept = default;
     ListIterator(const ListIterator& other) : node(other.node), list(other.node->list)
@@ -83,7 +256,7 @@ public:
             cout << "NODE IS NULL WHEN DELETING ITERATOR";
             return;
         }
-        list->ReleaseNode(node);
+        node->release();
     }
 
     ListIterator& operator=(const  ListIterator& other) {
@@ -99,8 +272,8 @@ public:
             node = other.node;
             node->acquire();
         }
-        list->ReleaseNode(previousNode);
-        //previousNode->release();
+        if (!previousNode)
+            previousNode->release();
         return *this;
     }
 
@@ -118,86 +291,49 @@ public:
 
     // Prefix
     ListIterator& operator++() {
-        unique_lock<shared_mutex> lock_first(node->m);
+
         if (!node->next) throw (out_of_range("Invalid index"));
 
         Node<T>* prevNode = node;
+        shared_lock<shared_mutex> global_lock(list->global_mutex);
         Node<T>* newNode = node->next;
-  
-        while (newNode->deleted && newNode->next) {
-            shared_lock<shared_mutex> lock(newNode->m);
-            newNode = newNode->next;
-        }
-        unique_lock<shared_mutex> lock(newNode->m);
+
         newNode->acquire();
         node = newNode;
-        list->ReleaseNode(prevNode);
-        //prevNode->release();
+        global_lock.unlock();
+        prevNode->release();
 
         return *this;
     }
 
     // Postfix
     ListIterator operator++(int) {
-        unique_lock<shared_mutex> lock_first(node->m);
-        if (!node->next) throw (out_of_range("Invalid index"));
-
-        Node<T>* prevNode = node;
-        Node<T>* newNode = node->next;
-
-        while (newNode->deleted && newNode->next) {
-            shared_lock<shared_mutex> lock(newNode->m);
-            newNode = newNode->next;
-        }
-
-        unique_lock<shared_mutex> lock(newNode->m);
-        newNode->acquire();
-        node = newNode;
-        list->ReleaseNode(prevNode);
-
-        return ListIterator(prevNode);
+        ++(*this);
+        return *this;
     }
 
     // Prefix
     ListIterator& operator--() {
-        unique_lock<shared_mutex> lock_first(node->m);
+
         if (!node->prev) throw out_of_range("Invalid index");
 
         Node<T>* prevNode = node;
+        shared_lock<shared_mutex> global_lock(list->global_mutex);
         Node<T>* newNode = node->prev;
-
-        while (newNode->deleted && newNode->prev) {
-            shared_lock<shared_mutex> lock(newNode->m);
-            newNode = newNode->prev;
-
-
-        }
-        unique_lock<shared_mutex> lock(newNode->m);
         newNode->acquire();
         node = newNode;
-        list->ReleaseNode(prevNode);
+
+        global_lock.unlock();
+
+        prevNode->release();
 
         return *this;
     }
 
     // Postfix
     ListIterator operator--(int) {
-        unique_lock<shared_mutex> lock_first(node->m);
-        if (!node->prev) throw out_of_range("Invalid index");
-
-        Node<T>* prevNode = node;
-
-        Node<T>* newNode = node->prev;
-        while (newNode->deleted && newNode->prev) {
-            shared_lock<shared_mutex> lock(newNode->m);
-            newNode = newNode->prev;
-        }
-        unique_lock<shared_mutex> lock(newNode->m);
-        newNode->acquire();
-        node = newNode;
-        list->ReleaseNode(prevNode);
-
-        return ListIterator(node);
+        --(*this);
+        return *this;
     }
 
     bool isEqual(const ListIterator<T>& other) const {
@@ -231,66 +367,13 @@ private:
 template<typename T>
 class LinkedList
 {
+    friend class ListIterator<T>;
+    friend class Purgatory<T>;
+    friend class Node<T>;
 public:
     using iterator = ListIterator<T>;
 
-    friend class ListIterator<T>;
-
-    void ReleaseNode(Node<T>* node) {
-        --node->ref_count;
-        if (node->ref_count != 0) {
-            return;
-        }
-
-        queue<Node<T>*> nodesToDelete;
-        nodesToDelete.push(node);
-        while (!nodesToDelete.empty()) {
-            Node<T>* currentNode = nodesToDelete.front();
-            Node<T>* prev = currentNode->prev;
-            Node<T>* next = currentNode->next;
-            if (prev) {
-                --prev->ref_count;
-                if (prev->ref_count == 0) {
-                    nodesToDelete.push(prev);
-                }
-            }
-            if (next) {
-                --next->ref_count;
-                if (next->ref_count == 0) {
-                    nodesToDelete.push(next);
-                }
-            }
-            nodesToDelete.pop();
-            delete currentNode;
-        }
-    }
-
-    void DeleteNode(Node<T>* node) {
-        queue<Node<T>*> nodesToDelete;
-        nodesToDelete.push(node);
-
-        while (!nodesToDelete.empty()) {
-            Node<T>* currentNode = nodesToDelete.front();
-            Node<T>* prev = currentNode->prev;
-            Node<T>* next = currentNode->next;
-            if (prev) {
-                prev->ref_count--;
-                if (prev->ref_count == 0) {
-                    nodesToDelete.push(prev);
-                }
-            }
-            if (next) {
-                next->ref_count--;
-                if (next->ref_count == 0) {
-                    nodesToDelete.push(next);
-                }
-            }
-            nodesToDelete.pop();
-            delete (currentNode);
-        }
-    }
-
-    LinkedList() : head(nullptr), tail(nullptr), size(0) {
+    LinkedList() : head(nullptr), tail(nullptr), size(0), purgatory(new Purgatory<T>(this)) {
         tail = new Node<T>(this);
         head = new Node<T>(this);
         tail->prev = head;
@@ -312,6 +395,7 @@ public:
     }
 
     ~LinkedList() {
+        delete(purgatory);
 
         Node<T>* nextNode;
         for (auto it = head; it != tail; it = nextNode) {
@@ -330,8 +414,6 @@ public:
 
         Node<T>* node = it.node;
 
-        if (node->deleted)
-            return nullptr;
         if (node == head || node == tail) return it;
 
         Node<T>* prev;
@@ -348,8 +430,7 @@ public:
                 assert(prev && prev->ref_count);
                 assert(next && next->ref_count);
             }
-            // RACES
-            { 
+            {
                 unique_lock<shared_mutex> prevLock(prev->m);
                 shared_lock<shared_mutex> currentLock(node->m);
                 unique_lock<shared_mutex> nextLock(next->m);
@@ -366,19 +447,15 @@ public:
 
 
                     node->deleted = true;
-                    ReleaseNode(node);
-                    ReleaseNode(node);
-                    //node->release();
-                    //node->release();
+                    node->release();
+                    node->release();
                     --size;
                 }
                 else {
                     retry = true;
                 }
-                ReleaseNode(prev);
-                ReleaseNode(next);
-                //prev->release();
-                //next->release();
+                prev->release();
+                next->release();
             }
         }
         return iterator(node->next);
@@ -399,7 +476,6 @@ public:
     iterator insert_after(iterator it, T value) {
         Node<T>* prev = it.node;
 
-        // If called after begin() in empty list (where begin() == end())
         if (prev == tail) {
             prev = prev->prev;
         }
@@ -489,8 +565,9 @@ public:
     }
 
 private:
-    shared_mutex   m;
-    Node<T>*       head;
-    Node<T>*       tail;
+    std::shared_mutex global_mutex;
+    Purgatory<T>* purgatory;
+    Node<T>* head;
+    Node<T>* tail;
     atomic<size_t> size;
 };
