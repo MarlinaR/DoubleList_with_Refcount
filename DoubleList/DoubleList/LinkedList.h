@@ -39,9 +39,7 @@ private:
     Node(T _value, LinkedList<T>* _list) : value(_value), ref_count(0), prev(this), next(this), list(_list) { }
     Node(const Node<T>&) = delete;
 
-    ~Node() {
-        //cout << "Node destructor\n";
-    }
+    ~Node() {}
 
     void operator=(const Node<T>&) = delete;
 
@@ -57,6 +55,11 @@ private:
 
         global_lock.unlock();
 
+    }
+    void dec_refcount() {
+        if (ref_count != 0) {
+            --ref_count;
+        }
     }
 
     void acquire() {
@@ -233,19 +236,21 @@ public:
     bool pur_deleted = false;
 };
 
-template<typename T>
-class ListIterator
-{
-    friend class LinkedList<T>;
-    friend class Purgatory<T>;
-    friend class Node<T>;
+template <typename T>
+class ListIterator {
 public:
 
+    template <typename T>
+    friend class LinkedList;
     ListIterator() noexcept = default;
-    ListIterator(const ListIterator& other) : node(other.node), list(other.node->list)
-    {
+    ListIterator(const ListIterator& other) noexcept {
+        std::unique_lock<std::shared_mutex> lock(other.node->m);
+        node = other.node;
+        list = other.list;
         node->acquire();
+
     }
+
     ListIterator(Node<T>* _node) : node(_node), list(_node->list)
     {
         node->acquire();
@@ -259,19 +264,23 @@ public:
         node->release();
     }
 
-    ListIterator& operator=(const  ListIterator& other) {
+    ListIterator& operator=(const ListIterator& other) {
         Node<T>* previousNode;
-        {
-            unique_lock<shared_mutex> lock1(node->m);
-            if (node == other.node) {
-                return *this;
-            }
-            shared_lock<shared_mutex> lock2(other.node->m);
-            previousNode = node;
+        unique_lock<shared_mutex> lock(node->m);
 
-            node = other.node;
-            node->acquire();
+        if (node == other.node) {
+            return *this;
         }
+
+        unique_lock<shared_mutex> lock2(other.node->m);
+        previousNode = node;
+
+        node = other.node;
+        node->acquire();
+        list = other.list;
+
+        lock2.unlock();
+        lock.unlock();
         if (!previousNode)
             previousNode->release();
         return *this;
@@ -288,52 +297,109 @@ public:
         if (node->deleted) throw (out_of_range("Invalid index"));
         return &(node->value);
     }
+    //ListIterator& operator=(ListIterator&& other) {
 
-    // Prefix
+    //    std::unique_lock<std::shared_mutex> lock(node->m);
+
+    //    if (node == other.node) {
+    //        return *this;
+    //    }
+
+    //    std::unique_lock<std::shared_mutex> lock_other(other.node->m);
+    //    auto* prev_value = node;
+    //    node = other.node;
+    //    node->acquire();
+    //    list = other.list;
+
+    //    lock_other.unlock();
+    //    lock.unlock();
+
+    //    prev_value->release();
+
+    //    return *this;
+    //}
+
+
     ListIterator& operator++() {
 
         if (!node->next) throw (out_of_range("Invalid index"));
 
-        Node<T>* prevNode = node;
-        shared_lock<shared_mutex> global_lock(list->global_mutex);
-        Node<T>* newNode = node->next;
+        if (node && node != list->tail) {
+            Node<T>* prevNode = nullptr;
+            {
+                shared_lock<shared_mutex> global_lock(list->global_mutex);
+                Node<T>* newNode = node->next;
 
-        newNode->acquire();
-        node = newNode;
-        global_lock.unlock();
-        prevNode->release();
+                prevNode = node;
+                newNode->acquire();
+                node = newNode;
 
+            }
+            prevNode->release();
+        }
         return *this;
     }
 
-    // Postfix
     ListIterator operator++(int) {
-        ++(*this);
-        return *this;
+
+        ListIterator temp = *this;
+
+        if (!node->next) throw (out_of_range("Invalid index"));
+
+        if (node && node != list->tail) {
+            Node<T>* prevNode = nullptr;
+            {
+                shared_lock<shared_mutex> global_lock(list->global_mutex);
+                Node<T>* newNode = node->next;
+
+                prevNode = node;
+                newNode->acquire();
+                node = newNode;
+
+            }
+            prevNode->release();
+        }
+
+        return temp;
     }
 
-    // Prefix
     ListIterator& operator--() {
 
         if (!node->prev) throw out_of_range("Invalid index");
 
-        Node<T>* prevNode = node;
-        shared_lock<shared_mutex> global_lock(list->global_mutex);
-        Node<T>* newNode = node->prev;
-        newNode->acquire();
-        node = newNode;
+        if (node && node != list->head) {
+            Node<T>* prevNode = nullptr;
+            {
+                std::shared_lock<std::shared_mutex> lock_cur(list->global_mutex);
+                Node<T>* newNode = node->prev;
 
-        global_lock.unlock();
-
-        prevNode->release();
+                prevNode = node;
+                newNode ->acquire();
+                node = newNode;
+            }
+            prevNode->release();
+        }
 
         return *this;
     }
 
-    // Postfix
     ListIterator operator--(int) {
-        --(*this);
-        return *this;
+        ListIterator temp = *this;
+        
+        if (node && node != list->head) {
+            Node<T>* prevNode = nullptr;
+            {
+                std::shared_lock<std::shared_mutex> lock_cur(list->global_mutex);
+                Node<T>* newNode = node->prev;
+
+                prevNode = node;
+                newNode->acquire();
+                node = newNode;
+            }
+            prevNode->release();
+        }
+
+        return temp;
     }
 
     bool isEqual(const ListIterator<T>& other) const {
@@ -355,17 +421,24 @@ public:
 
     int debugRefCount()
     {
-        shared_lock<shared_mutex> lock(node->m);
         return node->ref_count;
     }
 
 private:
-    Node<T>* node;
+    Node<T>* node = nullptr;
     LinkedList<T>* list;
+
+    ListIterator(Node<T>* node, LinkedList<T>* list) noexcept {
+        this->node = node;
+        this->node->acquire();
+        this->list = list;
+    }
 };
 
-template<typename T>
-class LinkedList
+
+
+template <typename T>
+class LinkedList 
 {
     friend class ListIterator<T>;
     friend class Purgatory<T>;
@@ -373,16 +446,15 @@ class LinkedList
 public:
     using iterator = ListIterator<T>;
 
-    LinkedList() : head(nullptr), tail(nullptr), size(0), purgatory(new Purgatory<T>(this)) {
-        tail = new Node<T>(this);
-        head = new Node<T>(this);
+    LinkedList() : head(new Node<T>(this)), tail(new Node<T>(this)), m_size(0), purgatory(new Purgatory<T>(this)) {
+
         tail->prev = head;
         head->next = tail;
 
-        head->acquire();
+        tail->acquire();
         head->acquire();
         tail->acquire();
-        tail->acquire();
+        head->acquire();
     }
 
     LinkedList(const LinkedList& other) = delete;
@@ -395,7 +467,7 @@ public:
     }
 
     ~LinkedList() {
-        delete(purgatory);
+        delete purgatory;
 
         Node<T>* nextNode;
         for (auto it = head; it != tail; it = nextNode) {
@@ -403,26 +475,23 @@ public:
             delete it;
         }
         delete tail;
-
     }
 
-    LinkedList& operator=(const LinkedList& other) = delete;
-    LinkedList& operator=(LinkedList&& x) = delete;
-
-    // Returns iterator on next to erased node
-    iterator erase(iterator it) {
+    void erase(iterator it) {
 
         Node<T>* node = it.node;
 
-        if (node == head || node == tail) return it;
+        if (node == head || node == tail) return;
 
-        Node<T>* prev;
-        Node<T>* next;
+        Node<T>* prev = nullptr;
+        Node<T>* next = nullptr;
 
         for (bool retry = true; retry;) {
             retry = false;
             {
-                shared_lock<shared_mutex> currentLock(node->m);
+                shared_lock<shared_mutex> lock(node->m);
+                if (node->deleted == true)
+                    return;
                 prev = node->prev;
                 prev->acquire();
                 next = node->next;
@@ -430,10 +499,11 @@ public:
                 assert(prev && prev->ref_count);
                 assert(next && next->ref_count);
             }
+
             {
-                unique_lock<shared_mutex> prevLock(prev->m);
-                shared_lock<shared_mutex> currentLock(node->m);
-                unique_lock<shared_mutex> nextLock(next->m);
+                unique_lock<shared_mutex> lock_left(prev->m);
+                shared_lock<shared_mutex> lock(node->m);
+                unique_lock<shared_mutex> lock_right(next->m);
 
                 if (prev->next == node && next->prev == node) {
 
@@ -445,42 +515,41 @@ public:
 
                     prev->acquire();
 
-
                     node->deleted = true;
                     node->release();
                     node->release();
-                    --size;
+                    --m_size;
+                    
                 }
                 else {
                     retry = true;
                 }
-                prev->release();
-                next->release();
             }
-        }
-        return iterator(node->next);
-    }
 
+            prev->release();
+            next->release();
+        }
+    }
     void push_front(T value) {
         iterator it(head);
-        insert_after(it, value);
+        insert(it, value);
     }
 
     void push_back(T value) {
         Node<T>* node = tail->prev;
         iterator it(node);
-        insert_after(it, value);
+        insert(it, value);
     }
 
     // Returns iterator on inserted node
-    iterator insert_after(iterator it, T value) {
+    void insert(iterator it, T value) {
         Node<T>* prev = it.node;
 
         if (prev == tail) {
             prev = prev->prev;
         }
 
-        if (prev == nullptr) return it;
+        if (prev == nullptr) return;
         prev->m.lock();
 
         Node<T>* next = nullptr;
@@ -507,67 +576,38 @@ public:
         next->prev = node;
         node->acquire();
 
-        ++size;
+        ++m_size;
 
         prev->m.unlock();
         next->m.unlock();
 
-        return iterator(node);
+        return ;
     }
 
-
-    iterator begin() noexcept {
+    iterator begin() {
         auto node = head->next;
-        unique_lock<shared_mutex> lock(node->m);
+        shared_lock<shared_mutex> lock_root(head->m);
         return iterator(node);
     }
 
-    iterator end() noexcept {
+    iterator end() {
         auto node = tail;
-        unique_lock<shared_mutex> lock(node->m);
+        shared_lock<shared_mutex> lock(node->m);
         return iterator(node);
     }
 
-    bool empty() noexcept {
-        return head->next == tail;
+    bool empty() {
+        return m_size == 0;
     }
 
-
-    size_t Size() const
-    {
-        return size;
-    }
-
-    string debug() {
-        string output = "\n";
-
-        if (head->next == tail) return "\n[Empty list]\n";
-
-        Node<T>* current = head->next;
-        while (current != tail) {
-
-            if (!current || current->deleted)
-                throw new overflow_error("something gone wrong");
-
-            if (!current->next)
-                throw new overflow_error("something gone wrong 2");
-
-            output += "["
-                + to_string(current->value)
-                + ",ref:"
-                + to_string(current->ref_count)
-                + ",del:"
-                + to_string(current->deleted)
-                + "]\n";
-            current = current->next;
-        }
-        return output;
+    std::size_t size() {
+        return m_size;
     }
 
 private:
-    std::shared_mutex global_mutex;
+    Node<T>* head = nullptr;
+    Node<T>* tail = nullptr;
     Purgatory<T>* purgatory;
-    Node<T>* head;
-    Node<T>* tail;
-    atomic<size_t> size;
+    std::atomic<std::size_t> m_size = 0;
+    std::shared_mutex global_mutex;
 };

@@ -141,6 +141,8 @@
   <ItemGroup>
     <ClInclude Include="catch.hpp" />
     <ClInclude Include="LinkedList.h" />
+    <ClInclude Include="rwlock_t.h" />
+    <ClInclude Include="SpinLockLinkedList.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source.cpp" />

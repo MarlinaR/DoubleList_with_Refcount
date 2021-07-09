@@ -21,6 +21,12 @@
     <ClInclude Include="LinkedList.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
+    <ClInclude Include="rwlock_t.h">
+      <Filter>Исходные файлы</Filter>
+    </ClInclude>
+    <ClInclude Include="SpinLockLinkedList.h">
+      <Filter>Исходные файлы</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source.cpp">
