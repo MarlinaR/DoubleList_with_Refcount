@@ -15,7 +15,7 @@ public:
 	void rlock() {
 		while (true) {
 			uint32_t old = val;
-			if (!(old & WRITE_BIT) && val.compare_exchange_strong(old, old + 1)) {
+			if (!(old & WRITE_BIT) && val.compare_exchange_strong(old, old + 1, std::memory_order_acquire, std::memory_order_relaxed)) {
 				return;
 			}
 			std::this_thread::yield();
@@ -26,25 +26,27 @@ public:
 		while (true) {
 			uint32_t old = val;
 			if (!(old & WRITE_BIT) &&
-				val.compare_exchange_strong(old, old | WRITE_BIT)) {
+				val.compare_exchange_strong(old, old | WRITE_BIT, std::memory_order_acquire, std::memory_order_relaxed)) {
 				break;
 			}
 			std::this_thread::yield();
 		}
+		// Waiting for readers to stop
 		while (true) {
-			if (val == WRITE_BIT) {
+			if (val == WRITE_BIT) 
 				break;
-			}
 			std::this_thread::yield();
 		}
 	}
 
 	void unlock() {
+		// If writer locked
 		if (val == WRITE_BIT) {
 			val = 0;
 		}
+		// If reader locked
 		else {
-			--val;
+			val--;
 		}
 	}
 };
