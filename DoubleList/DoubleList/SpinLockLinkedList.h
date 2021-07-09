@@ -231,10 +231,10 @@ public:
         } while (!pur_deleted || head.load() != nullptr);
     }
 
-    std::thread cleanThread;
-    std::atomic<PurgatoryNode<T>*> head;
-    std::atomic<int32_t> global_counter = 0;
     SLLinkedList<T>* list_ref;
+    std::atomic<PurgatoryNode<T>*> head;
+    std::thread cleanThread;
+
     bool pur_deleted = false;
 };
 
@@ -242,8 +242,8 @@ template <typename T>
 class SLListIterator {
 public:
 
-    template <typename T>
-    friend class SLLinkedList;
+
+    friend class SLLinkedList<T>;
     SLListIterator() noexcept = default;
     SLListIterator(const SLListIterator& other) noexcept {
         other.node->m.wlock();
@@ -450,6 +450,7 @@ private:
 template <typename T>
 class SLLinkedList
 {
+
     friend class SLListIterator<T>;
     friend class SLPurgatory<T>;
     friend class SLNode<T>;

@@ -34,7 +34,6 @@
 #include <atomic>
 #include <cstdlib>
 #include <ctime>
-#include <activation.h>
 #include <stdio.h>
 #include <math.h>
 

@@ -229,10 +229,10 @@ public:
         } while (!pur_deleted || head.load() != nullptr);
     }
 
-    std::thread cleanThread;
-    std::atomic<PurgatoryNode<T>*> head;
-    std::atomic<int32_t> global_counter = 0;
     LinkedList<T>* list_ref;
+    std::atomic<PurgatoryNode<T>*> head;
+    std::thread cleanThread;
+
     bool pur_deleted = false;
 };
 
@@ -240,8 +240,8 @@ template <typename T>
 class ListIterator {
 public:
 
-    template <typename T>
-    friend class LinkedList;
+
+    friend class LinkedList<T>;
     ListIterator() noexcept = default;
     ListIterator(const ListIterator& other) noexcept {
         std::unique_lock<std::shared_mutex> lock(other.node->m);
