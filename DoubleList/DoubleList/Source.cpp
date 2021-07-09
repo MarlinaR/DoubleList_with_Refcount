@@ -419,7 +419,7 @@ TEST_CASE("Threaded tests", "[threads]") {
 
         vector<thread> threads;
 
-        clock_t start = clock();
+        auto start = chrono::high_resolution_clock::now();
 
         for (int i = 0; i < threadAmount; ++i) {
             threads.push_back(thread(pusher1Function, &list, i, elementsPerThread));
@@ -431,8 +431,8 @@ TEST_CASE("Threaded tests", "[threads]") {
         threads.push_back(thread(eraser2Function, &list, elementsPerThread));
         join_all(threads);
 
-        float duration = float(clock() - start) / CLOCKS_PER_SEC * 1000;
-        cout << "Random push + erase done in " << duration << "ms" << endl;
+        auto duration = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now() - start);
+        cout << "Random push + erase done in " << (double)duration.count() / 1000.0 << "sec" << endl;
 
         REQUIRE(list.size() >= (size_t)(elementsPerThread * threadAmount));
     }
@@ -445,7 +445,7 @@ TEST_CASE("Threaded tests", "[threads]") {
         int totalDeletions = totalElements / 2;
         vector<thread> threads;
         condition_variable cv;
-        clock_t start = clock();
+        auto start = chrono::high_resolution_clock::now();
 
         // Filling list
         for (int i = 0; i < threadsAmount; ++i) {
@@ -465,8 +465,8 @@ TEST_CASE("Threaded tests", "[threads]") {
         cv.notify_all();
         join_all(threads);
 
-        float duration = float(clock() - start) / CLOCKS_PER_SEC * 1000;
-        cout << "Random iteration + erase done within " << duration << " ms" << endl;
+        auto duration = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now() - start);
+        cout << "Random iteration + erase done within " << (double)duration.count() / 1000.0 << " sec" << endl;
         REQUIRE(list.size() >= (size_t)(totalElements - totalDeletions));
     }
 
@@ -481,19 +481,15 @@ TEST_CASE("Threaded tests", "[threads]") {
         while (threadAmount <= neededThreadsAmount) {
             pushesPerThread = totalPushes / threadAmount;
 
-            clock_t normalStart = clock();
+            auto normalStart = chrono::high_resolution_clock::now();
             ThreadedTest(threadAmount, repeatEveryTest, totalPushes);
-            float normalDuration = float(clock() - normalStart) / CLOCKS_PER_SEC * 1000;
-            cout << "Normal lock; " << threadAmount << " threads; " << normalDuration << " ms." << endl;
+            auto normalDuration = (double)chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now() - normalStart).count() / 1000.0;
+            cout << "Normal lock; " << threadAmount << " threads; " << normalDuration << " sec." << endl;
 
-            clock_t spinlockStart = clock();
-
-            // TODO ЗАМЕНИТЬ ВОТ ЭТО НА ВОТ ТО
+            auto spinlockStart = chrono::high_resolution_clock::now();
             SLThreadedTest(threadAmount, repeatEveryTest, totalPushes);
-            //ThreadedTest(threadAmount, repeatEveryTest, totalPushes);
-
-            float spinlockDuration = float(clock() - spinlockStart) / CLOCKS_PER_SEC * 1000;
-            cout << "Spinlock   ; " << threadAmount << " threads; " << spinlockDuration << " ms." << endl;
+            auto spinlockDuration = (double)chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now() - spinlockStart).count() / 1000.0;
+            cout << "Spinlock   ; " << threadAmount << " threads; " << spinlockDuration << " sec." << endl;
             testData.push_back(testTiming(threadAmount, spinlockDuration, normalDuration));
 
             threadAmount += 1;

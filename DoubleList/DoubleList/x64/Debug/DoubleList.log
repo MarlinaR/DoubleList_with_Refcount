@@ -1,3 +1,5 @@
 ﻿  Source.cpp
 C:\Users\Arina\Desktop\DoubleList_with_Refcount\DoubleList\DoubleList\Source.cpp(413,15): warning C4244: аргумент: преобразование "time_t" в "unsigned int", возможна потеря данных
+C:\Users\Arina\Desktop\DoubleList_with_Refcount\DoubleList\DoubleList\Source.cpp(493,75): warning C4244: аргумент: преобразование "double" в "float", возможна потеря данных
+C:\Users\Arina\Desktop\DoubleList_with_Refcount\DoubleList\DoubleList\Source.cpp(493,57): warning C4244: аргумент: преобразование "double" в "float", возможна потеря данных
   DoubleList.vcxproj -> C:\Users\Arina\Desktop\DoubleList_with_Refcount\DoubleList\x64\Debug\DoubleList.exe

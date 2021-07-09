@@ -15,6 +15,7 @@ public:
 	void rlock() {
 		while (true) {
 			uint32_t old = val;
+			// If no write lock -> increase readers by 1
 			if (!(old & WRITE_BIT) && val.compare_exchange_strong(old, old + 1, std::memory_order_acquire, std::memory_order_relaxed)) {
 				return;
 			}
