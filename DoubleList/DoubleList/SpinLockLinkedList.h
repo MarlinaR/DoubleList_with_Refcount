@@ -88,7 +88,6 @@ private:
 
 public:
 
-    template <typename T>
     class PurgatoryNode
     {
     public:
@@ -117,21 +116,21 @@ public:
 
     void put_purgatory(SLNode<T>* value)
     {
-        PurgatoryNode<T>* node = new PurgatoryNode<T>(value);
+        PurgatoryNode* node = new PurgatoryNode(value);
 
         do {
             node->next = head.load();
         } while (!head.compare_exchange_strong(node->next, node));
     }
 
-    void remove(PurgatoryNode<T>* prev, PurgatoryNode<T>* node)
+    void remove(PurgatoryNode* prev, PurgatoryNode* node)
     {
         prev->next = node->next;
 
         free(node);
     }
 
-    void deleted_node(PurgatoryNode<T>* node)
+    void deleted_node(PurgatoryNode* node)
     {
         SLNode<T>* prev = node->value->prev;
         SLNode<T>* next = node->value->next;
@@ -157,17 +156,17 @@ public:
             // first faze
             list_ref->global_mutex.wlock();
 
-            PurgatoryNode<T>* purge_start = this->head;
+            PurgatoryNode* purge_start = this->head;
 
             list_ref->global_mutex.unlock();
 
             if (purge_start != nullptr)
             {
 
-                PurgatoryNode<T>* prev = purge_start;
-                for (PurgatoryNode<T>* node = purge_start; node != nullptr;)
+                PurgatoryNode* prev = purge_start;
+                for (PurgatoryNode* node = purge_start; node != nullptr;)
                 {
-                    PurgatoryNode<T>* cur_val = node;
+                    PurgatoryNode* cur_val = node;
                     node = node->next;
 
                     if (cur_val->value->ref_count > 0 || cur_val->value->purged == 1)
@@ -186,7 +185,7 @@ public:
 
                 list_ref->global_mutex.wlock();
 
-                PurgatoryNode<T>* new_purge_start = this->head;
+                PurgatoryNode* new_purge_start = this->head;
 
                 if (new_purge_start == purge_start)
                 {
@@ -197,10 +196,10 @@ public:
                 list_ref->global_mutex.unlock();
 
                 prev = new_purge_start;
-                PurgatoryNode<T>* node = new_purge_start;
+                PurgatoryNode* node = new_purge_start;
                 while (node != purge_start)
                 {
-                    PurgatoryNode<T>* cur_val = node;
+                    PurgatoryNode* cur_val = node;
                     node = node->next;
 
                     if (cur_val->value->purged == 1)
@@ -215,9 +214,9 @@ public:
 
                 prev->next = nullptr;
 
-                for (PurgatoryNode<T>* node = purge_start; node != nullptr;)
+                for (PurgatoryNode* node = purge_start; node != nullptr;)
                 {
-                    PurgatoryNode<T>* cur_val = node;
+                    PurgatoryNode* cur_val = node;
                     node = node->next;
 
                     deleted_node(cur_val);
@@ -232,7 +231,7 @@ public:
     }
 
     SLLinkedList<T>* list_ref;
-    std::atomic<PurgatoryNode<T>*> head;
+    std::atomic<PurgatoryNode*> head;
     std::thread cleanThread;
 
     bool pur_deleted = false;
@@ -355,7 +354,7 @@ public:
         if (node && node != list->tail) {
             SLNode<T>* prevNode = nullptr;
             {
-                list->global_mutex.rlock(); 
+                list->global_mutex.rlock();
                 SLNode<T>* newNode = node->next;
 
                 prevNode = node;
@@ -376,7 +375,7 @@ public:
         if (node && node != list->head) {
             SLNode<T>* prevNode = nullptr;
             {
-                list->global_mutex.rlock(); 
+                list->global_mutex.rlock();
                 SLNode<T>* newNode = node->prev;
 
                 prevNode = node;
@@ -397,13 +396,13 @@ public:
         if (node && node != list->head) {
             SLNode<T>* prevNode = nullptr;
             {
-                list->global_mutex.rlock(); 
+                list->global_mutex.rlock();
                 SLNode<T>* newNode = node->prev;
 
                 prevNode = node;
                 newNode->acquire();
                 node = newNode;
-                
+
                 list->global_mutex.unlock();
             }
             prevNode->release();

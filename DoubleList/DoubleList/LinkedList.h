@@ -85,8 +85,6 @@ private:
     friend class Node<T>;
 
 public:
-
-    template <typename T>
     class PurgatoryNode
     {
     public:
@@ -115,21 +113,21 @@ public:
 
     void put_purgatory(Node<T>* value)
     {
-        PurgatoryNode<T>* node = new PurgatoryNode<T>(value);
+        PurgatoryNode* node = new PurgatoryNode(value);
 
         do {
             node->next = head.load();
         } while (!head.compare_exchange_strong(node->next, node));
     }
 
-    void remove(PurgatoryNode<T>* prev, PurgatoryNode<T>* node)
+    void remove(PurgatoryNode* prev, PurgatoryNode* node)
     {
         prev->next = node->next;
 
         free(node);
     }
 
-    void deleted_node(PurgatoryNode<T>* node)
+    void deleted_node(PurgatoryNode* node)
     {
         Node<T>* prev = node->value->prev;
         Node<T>* next = node->value->next;
@@ -155,17 +153,17 @@ public:
             // first faze
             unique_lock<std::shared_mutex> lock(list_ref->global_mutex);
 
-            PurgatoryNode<T>* purge_start = this->head;
+            PurgatoryNode* purge_start = this->head;
 
             lock.unlock();
 
             if (purge_start != nullptr)
             {
 
-                PurgatoryNode<T>* prev = purge_start;
-                for (PurgatoryNode<T>* node = purge_start; node != nullptr;)
+                PurgatoryNode* prev = purge_start;
+                for (PurgatoryNode* node = purge_start; node != nullptr;)
                 {
-                    PurgatoryNode<T>* cur_val = node;
+                    PurgatoryNode* cur_val = node;
                     node = node->next;
 
                     if (cur_val->value->ref_count > 0 || cur_val->value->purged == 1)
@@ -184,7 +182,7 @@ public:
 
                 lock.lock();
 
-                PurgatoryNode<T>* new_purge_start = this->head;
+                PurgatoryNode* new_purge_start = this->head;
 
                 if (new_purge_start == purge_start)
                 {
@@ -195,10 +193,10 @@ public:
                 lock.unlock();
 
                 prev = new_purge_start;
-                PurgatoryNode<T>* node = new_purge_start;
+                PurgatoryNode* node = new_purge_start;
                 while (node != purge_start)
                 {
-                    PurgatoryNode<T>* cur_val = node;
+                    PurgatoryNode* cur_val = node;
                     node = node->next;
 
                     if (cur_val->value->purged == 1)
@@ -213,9 +211,9 @@ public:
 
                 prev->next = nullptr;
 
-                for (PurgatoryNode<T>* node = purge_start; node != nullptr;)
+                for (PurgatoryNode* node = purge_start; node != nullptr;)
                 {
-                    PurgatoryNode<T>* cur_val = node;
+                    PurgatoryNode* cur_val = node;
                     node = node->next;
 
                     deleted_node(cur_val);
@@ -230,8 +228,8 @@ public:
     }
 
     LinkedList<T>* list_ref;
-    std::atomic<PurgatoryNode<T>*> head;
-    std::thread cleanThread;
+    std::atomic<PurgatoryNode*> head;
+    thread cleanThread;
 
     bool pur_deleted = false;
 };
@@ -374,7 +372,7 @@ public:
                 Node<T>* newNode = node->prev;
 
                 prevNode = node;
-                newNode ->acquire();
+                newNode->acquire();
                 node = newNode;
             }
             prevNode->release();
@@ -385,7 +383,7 @@ public:
 
     ListIterator operator--(int) {
         ListIterator temp = *this;
-        
+
         if (node && node != list->head) {
             Node<T>* prevNode = nullptr;
             {
@@ -438,7 +436,7 @@ private:
 
 
 template <typename T>
-class LinkedList 
+class LinkedList
 {
     friend class ListIterator<T>;
     friend class Purgatory<T>;
@@ -519,7 +517,7 @@ public:
                     node->release();
                     node->release();
                     --m_size;
-                    
+
                 }
                 else {
                     retry = true;
@@ -581,7 +579,7 @@ public:
         prev->m.unlock();
         next->m.unlock();
 
-        return ;
+        return;
     }
 
     iterator begin() {
