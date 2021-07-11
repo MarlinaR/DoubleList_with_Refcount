@@ -346,32 +346,32 @@
     }
 
     // For random push erase test
-    auto pusher1Function = [&](LinkedList<int>* list, int theadId, int elementsPerThread) {
+    auto pusher1Function = [](LinkedList<int>* list, int theadId, int elementsPerThread) {
         for (int j = 0; j < elementsPerThread * 2; ++j) {
             list->push_back(j + theadId * elementsPerThread);
         }
     };
 
-    auto pusher2Function = [&](LinkedList<int>* list, int theadId, int elementsPerThread, int threadAmount) {
+    auto pusher2Function = [](LinkedList<int>* list, int theadId, int elementsPerThread, int threadAmount) {
         for (int j = 0; j < elementsPerThread * 2; ++j) {
             list->push_front(j + (theadId + threadAmount) * elementsPerThread);
         }
     };
 
-    auto eraser2Function = [&](LinkedList<int>* list, int elementsPerThread) {
+    auto eraser2Function = [](LinkedList<int>* list, int elementsPerThread) {
         for (int j = 0; j < elementsPerThread; ++j) {
             list->erase(list->begin());
         }
     };
 
     // For concurrent iteration erase test
-    auto pusher3Function = [&](LinkedList<int>* list, int threadId, int pushes) {
+    auto pusher3Function = [](LinkedList<int>* list, int threadId, int pushes) {
         for (int j = 0; j < pushes; ++j) {
             list->push_back(j + threadId * pushes);
         }
     };
 
-    auto iteratorFunction = [&](LinkedList<int>* list, condition_variable* cv, int totalElements) {
+    auto iteratorFunction = [](LinkedList<int>* list, condition_variable* cv, int totalElements) {
         {
             mutex mutex_;
             unique_lock<mutex> cvlock(mutex_);
@@ -384,7 +384,7 @@
         }
     };
 
-    auto erasionFunction = [&](LinkedList<int>* list, condition_variable* cv, int eraseAmount) {
+    auto erasionFunction = [](LinkedList<int>* list, condition_variable* cv, int eraseAmount) {
         {
             mutex mutex_;
             unique_lock<mutex> cvlock(mutex_);
