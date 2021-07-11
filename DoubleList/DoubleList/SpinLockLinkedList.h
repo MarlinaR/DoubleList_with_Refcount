@@ -624,7 +624,7 @@
         std::size_t size() {
             return m_size;
         }
-
+         
     private:
         SLNode<T>* head = nullptr;
         SLNode<T>* tail = nullptr;

@@ -1,0 +1,1 @@
+g++ catch.hpp LinkedList.h rwlock_t.h Source.cpp SpinLockLinkedList.h  -std=c++17 -pthread -o a.out && ./a.out
