@@ -9,624 +9,626 @@
 #include <cmath>
 #include <memory>
 #include <stdexcept>
-#include <shared_mutex>
-#include <mutex>
 #include <iostream>
 #include <atomic>
 #include <cassert>
 
+#include <thread>
+#include <shared_mutex>
+#include <mutex>
+
 #include "rwlock_t.h"
 
-using namespace std;
+    using namespace std;
 
-template<typename T>
-class SLListIterator;
+    template<typename T>
+    class SLListIterator;
 
-template<typename T>
-class SLLinkedList;
+    template<typename T>
+    class SLLinkedList;
 
-template<typename T>
-class SLPurgatory;
+    template<typename T>
+    class SLPurgatory;
 
-template<typename T>
-class SLNode
-{
-    friend class SLListIterator<T>;
-    friend class SLLinkedList<T>;
-    friend class SLPurgatory<T>;
-
-
-private:
-    SLNode(SLLinkedList<T>* _list) : list(_list) { }
-    SLNode(T _value, SLLinkedList<T>* _list) : value(_value), ref_count(0), prev(this), next(this), list(_list) { }
-    SLNode(const SLNode<T>&) = delete;
-
-    ~SLNode() {}
-
-    void operator=(const SLNode<T>&) = delete;
-
-    void release() {
-
-        list->global_mutex.rlock();
-
-        int old_ref_count = --ref_count;
-
-        if (old_ref_count == 0) {
-            list->purgatory->put_purgatory(this);
-        }
-
-        list->global_mutex.unlock();
-
-    }
-    void dec_refcount() {
-        if (ref_count != 0) {
-            --ref_count;
-        }
-    }
-
-    void acquire() {
-        ref_count++;
-    }
-
-    T            value;
-    atomic<int>  ref_count = 0;
-    atomic<bool> deleted = false;
-    atomic<int> purged = 0;
-    SLNode<T>* prev;
-    SLNode<T>* next;
-    rwlock_t m;
-    SLLinkedList<T>* list;
-};
-
-template <typename T>
-class SLPurgatory
-{
-private:
-    friend class SLListIterator<T>;
-    friend class SLLinkedList<T>;
-    friend class SLNode<T>;
-
-public:
-
-    class PurgatoryNode
+    template<typename T>
+    class SLNode
     {
-    public:
-        PurgatoryNode(SLNode<T>* value) :
-            value(value) { }
+        friend class SLListIterator<T>;
+        friend class SLLinkedList<T>;
+        friend class SLPurgatory<T>;
 
-        SLNode<T>* value = nullptr;
-        PurgatoryNode* next = nullptr;
+
+    private:
+        SLNode(SLLinkedList<T>* _list) : list(_list) { }
+        SLNode(T _value, SLLinkedList<T>* _list) : value(_value), ref_count(0), prev(this), next(this), list(_list) { }
+        SLNode(const SLNode<T>&) = delete;
+
+        ~SLNode() {}
+
+        void operator=(const SLNode<T>&) = delete;
+
+        void release() {
+
+            list->global_mutex.rlock();
+
+            int old_ref_count = --ref_count;
+
+            if (old_ref_count == 0) {
+                list->purgatory->put_purgatory(this);
+            }
+
+            list->global_mutex.unlock();
+
+        }
+        void dec_refcount() {
+            if (ref_count != 0) {
+                --ref_count;
+            }
+        }
+
+        void acquire() {
+            ref_count++;
+        }
+
+        T            value;
+        atomic<int>  ref_count = 0;
+        atomic<bool> deleted = false;
+        atomic<int> purged = 0;
+        SLNode<T>* prev;
+        SLNode<T>* next;
+        rwlock_t m;
+        SLLinkedList<T>* list;
     };
 
-    SLPurgatory(SLLinkedList<T>* list_ref) :
-        list_ref(list_ref),
-        head(nullptr),
-        cleanThread(&SLPurgatory::clean_purgatory, this) { }
-
-    ~SLPurgatory()
+    template <typename T>
+    class SLPurgatory
     {
-        set_deleted();
-        cleanThread.join();
-    }
+    private:
+        friend class SLListIterator<T>;
+        friend class SLLinkedList<T>;
+        friend class SLNode<T>;
 
-    void set_deleted()
-    {
-        pur_deleted = true;
-    }
+    public:
 
-    void put_purgatory(SLNode<T>* value)
-    {
-        PurgatoryNode* node = new PurgatoryNode(value);
-
-        do {
-            node->next = head.load();
-        } while (!head.compare_exchange_strong(node->next, node));
-    }
-
-    void remove(PurgatoryNode* prev, PurgatoryNode* node)
-    {
-        prev->next = node->next;
-
-        free(node);
-    }
-
-    void deleted_node(PurgatoryNode* node)
-    {
-        SLNode<T>* prev = node->value->prev;
-        SLNode<T>* next = node->value->next;
-
-        if (prev != nullptr)
+        class PurgatoryNode
         {
-            prev->release();
+        public:
+            PurgatoryNode(SLNode<T>* value) :
+                value(value) { }
+
+            SLNode<T>* value = nullptr;
+            PurgatoryNode* next = nullptr;
+        };
+
+        SLPurgatory(SLLinkedList<T>* list_ref) :
+            list_ref(list_ref),
+            head(nullptr),
+            cleanThread(&SLPurgatory::clean_purgatory, this) { }
+
+        ~SLPurgatory()
+        {
+            set_deleted();
+            cleanThread.join();
         }
 
-        if (next != nullptr)
+        void set_deleted()
         {
-            next->release();
+            pur_deleted = true;
         }
 
-        free(node->value);
-        free(node);
-    }
-
-    void clean_purgatory()
-    {
-        do
+        void put_purgatory(SLNode<T>* value)
         {
-            // first faze
-            list_ref->global_mutex.wlock();
+            PurgatoryNode* node = new PurgatoryNode(value);
 
-            PurgatoryNode* purge_start = this->head;
+            do {
+                node->next = head.load();
+            } while (!head.compare_exchange_strong(node->next, node));
+        }
 
-            list_ref->global_mutex.unlock();
+        void remove(PurgatoryNode* prev, PurgatoryNode* node)
+        {
+            prev->next = node->next;
 
-            if (purge_start != nullptr)
+            free(node);
+        }
+
+        void deleted_node(PurgatoryNode* node)
+        {
+            SLNode<T>* prev = node->value->prev;
+            SLNode<T>* next = node->value->next;
+
+            if (prev != nullptr)
             {
+                prev->release();
+            }
 
-                PurgatoryNode* prev = purge_start;
-                for (PurgatoryNode* node = purge_start; node != nullptr;)
-                {
-                    PurgatoryNode* cur_val = node;
-                    node = node->next;
+            if (next != nullptr)
+            {
+                next->release();
+            }
 
-                    if (cur_val->value->ref_count > 0 || cur_val->value->purged == 1)
-                    {
-                        remove(prev, cur_val);
-                    }
-                    else
-                    {
-                        cur_val->value->purged = 1;
-                        prev = cur_val;
-                    }
-                }
-                prev->next = nullptr;
+            free(node->value);
+            free(node);
+        }
 
-                // second faze
-
+        void clean_purgatory()
+        {
+            do
+            {
+                // first faze
                 list_ref->global_mutex.wlock();
 
-                PurgatoryNode* new_purge_start = this->head;
-
-                if (new_purge_start == purge_start)
-                {
-
-                    this->head = nullptr;
-                }
+                PurgatoryNode* purge_start = this->head;
 
                 list_ref->global_mutex.unlock();
 
-                prev = new_purge_start;
-                PurgatoryNode* node = new_purge_start;
-                while (node != purge_start)
+                if (purge_start != nullptr)
                 {
-                    PurgatoryNode* cur_val = node;
-                    node = node->next;
 
-                    if (cur_val->value->purged == 1)
+                    PurgatoryNode* prev = purge_start;
+                    for (PurgatoryNode* node = purge_start; node != nullptr;)
                     {
-                        remove(prev, cur_val);
+                        PurgatoryNode* cur_val = node;
+                        node = node->next;
+
+                        if (cur_val->value->ref_count > 0 || cur_val->value->purged == 1)
+                        {
+                            remove(prev, cur_val);
+                        }
+                        else
+                        {
+                            cur_val->value->purged = 1;
+                            prev = cur_val;
+                        }
                     }
-                    else
+                    prev->next = nullptr;
+
+                    // second faze
+
+                    list_ref->global_mutex.wlock();
+
+                    PurgatoryNode* new_purge_start = this->head;
+
+                    if (new_purge_start == purge_start)
                     {
-                        prev = cur_val;
+
+                        this->head = nullptr;
+                    }
+
+                    list_ref->global_mutex.unlock();
+
+                    prev = new_purge_start;
+                    PurgatoryNode* node = new_purge_start;
+                    while (node != purge_start)
+                    {
+                        PurgatoryNode* cur_val = node;
+                        node = node->next;
+
+                        if (cur_val->value->purged == 1)
+                        {
+                            remove(prev, cur_val);
+                        }
+                        else
+                        {
+                            prev = cur_val;
+                        }
+                    }
+
+                    prev->next = nullptr;
+
+                    for (PurgatoryNode* node = purge_start; node != nullptr;)
+                    {
+                        PurgatoryNode* cur_val = node;
+                        node = node->next;
+
+                        deleted_node(cur_val);
                     }
                 }
 
-                prev->next = nullptr;
-
-                for (PurgatoryNode* node = purge_start; node != nullptr;)
+                if (!pur_deleted)
                 {
-                    PurgatoryNode* cur_val = node;
-                    node = node->next;
-
-                    deleted_node(cur_val);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
-            }
-
-            if (!pur_deleted)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-        } while (!pur_deleted || head.load() != nullptr);
-    }
-
-    SLLinkedList<T>* list_ref;
-    std::atomic<PurgatoryNode*> head;
-    std::thread cleanThread;
-
-    bool pur_deleted = false;
-};
-
-template <typename T>
-class SLListIterator {
-public:
-
-
-    friend class SLLinkedList<T>;
-    SLListIterator() noexcept = default;
-    SLListIterator(const SLListIterator& other) noexcept {
-        other.node->m.wlock();
-        node = other.node;
-        list = other.list;
-        other.node->m.unlock();
-        node->acquire();
-
-    }
-
-    SLListIterator(SLNode<T>* _node) : node(_node), list(_node->list)
-    {
-        node->acquire();
-    }
-
-    ~SLListIterator() {
-        if (!node) {
-            cout << "NODE IS NULL WHEN DELETING ITERATOR";
-            return;
+            } while (!pur_deleted || head.load() != nullptr);
         }
-        node->release();
-    }
 
-    SLListIterator& operator=(const SLListIterator& other) {
-        SLNode<T>* previousNode;
-        node->m.wlock();
+        SLLinkedList<T>* list_ref;
+        std::atomic<PurgatoryNode*> head;
+        std::thread cleanThread;
 
-        if (node == other.node) {
+        bool pur_deleted = false;
+    };
+
+    template <typename T>
+    class SLListIterator {
+    public:
+
+
+        friend class SLLinkedList<T>;
+        SLListIterator() noexcept = default;
+        SLListIterator(const SLListIterator& other) noexcept {
+            other.node->m.wlock();
+            node = other.node;
+            list = other.list;
+            other.node->m.unlock();
+            node->acquire();
+
+        }
+
+        SLListIterator(SLNode<T>* _node) : node(_node), list(_node->list)
+        {
+            node->acquire();
+        }
+
+        ~SLListIterator() {
+            if (!node) {
+                cout << "NODE IS NULL WHEN DELETING ITERATOR";
+                return;
+            }
+            node->release();
+        }
+
+        SLListIterator& operator=(const SLListIterator& other) {
+            SLNode<T>* previousNode;
+            node->m.wlock();
+
+            if (node == other.node) {
+                node->m.unlock();
+                return *this;
+            }
+
+            other.node->m.wlock();
+            previousNode = node;
+
+            node = other.node;
+            node->acquire();
+            list = other.list;
+
+
             node->m.unlock();
+            other.node->m.unlock();
+            if (!previousNode)
+                previousNode->release();
             return *this;
         }
 
-        other.node->m.wlock();
-        previousNode = node;
-
-        node = other.node;
-        node->acquire();
-        list = other.list;
-
-
-        node->m.unlock();
-        other.node->m.unlock();
-        if (!previousNode)
-            previousNode->release();
-        return *this;
-    }
-
-    T& operator*() const {
-        node->m.rlock();
-        if (node->deleted) throw (out_of_range("Invalid index"));
-        node->m.unlock();
-        return node->value;
-    }
-
-    T* operator->() const {
-        shared_lock<shared_mutex> lock(node->m);
-        if (node->deleted) throw (out_of_range("Invalid index"));
-        return &(node->value);
-    }
-    //SLListIterator& operator=(SLListIterator&& other) {
-
-    //    std::unique_lock<std::shared_mutex> lock(node->m);
-
-    //    if (node == other.node) {
-    //        return *this;
-    //    }
-
-    //    std::unique_lock<std::shared_mutex> lock_other(other.node->m);
-    //    auto* prev_value = node;
-    //    node = other.node;
-    //    node->acquire();
-    //    list = other.list;
-
-    //    lock_other.unlock();
-    //    lock.unlock();
-
-    //    prev_value->release();
-
-    //    return *this;
-    //}
-
-
-    SLListIterator& operator++() {
-
-        if (!node->next) throw (out_of_range("Invalid index"));
-
-        if (node && node != list->tail) {
-            SLNode<T>* prevNode = nullptr;
-            {
-                list->global_mutex.rlock();
-                SLNode<T>* newNode = node->next;
-
-                prevNode = node;
-                newNode->acquire();
-                node = newNode;
-                list->global_mutex.unlock();
-            }
-            prevNode->release();
-        }
-        return *this;
-    }
-
-    SLListIterator operator++(int) {
-
-        SLListIterator temp = *this;
-
-        if (!node->next) throw (out_of_range("Invalid index"));
-
-        if (node && node != list->tail) {
-            SLNode<T>* prevNode = nullptr;
-            {
-                list->global_mutex.rlock();
-                SLNode<T>* newNode = node->next;
-
-                prevNode = node;
-                newNode->acquire();
-                node = newNode;
-                list->global_mutex.unlock();
-            }
-            prevNode->release();
+        T& operator*() const {
+            node->m.rlock();
+            if (node->deleted) throw (out_of_range("Invalid index"));
+            node->m.unlock();
+            return node->value;
         }
 
-        return temp;
-    }
-
-    SLListIterator& operator--() {
-
-        if (!node->prev) throw out_of_range("Invalid index");
-
-        if (node && node != list->head) {
-            SLNode<T>* prevNode = nullptr;
-            {
-                list->global_mutex.rlock();
-                SLNode<T>* newNode = node->prev;
-
-                prevNode = node;
-                newNode->acquire();
-                node = newNode;
-
-                list->global_mutex.unlock();
-            }
-            prevNode->release();
+        T* operator->() const {
+            shared_lock<shared_mutex> lock(node->m);
+            if (node->deleted) throw (out_of_range("Invalid index"));
+            return &(node->value);
         }
+        //SLListIterator& operator=(SLListIterator&& other) {
 
-        return *this;
-    }
+        //    std::unique_lock<std::shared_mutex> lock(node->m);
 
-    SLListIterator operator--(int) {
-        SLListIterator temp = *this;
+        //    if (node == other.node) {
+        //        return *this;
+        //    }
 
-        if (node && node != list->head) {
-            SLNode<T>* prevNode = nullptr;
-            {
-                list->global_mutex.rlock();
-                SLNode<T>* newNode = node->prev;
+        //    std::unique_lock<std::shared_mutex> lock_other(other.node->m);
+        //    auto* prev_value = node;
+        //    node = other.node;
+        //    node->acquire();
+        //    list = other.list;
 
-                prevNode = node;
-                newNode->acquire();
-                node = newNode;
+        //    lock_other.unlock();
+        //    lock.unlock();
 
-                list->global_mutex.unlock();
-            }
-            prevNode->release();
-        }
+        //    prev_value->release();
 
-        return temp;
-    }
-
-    bool isEqual(const SLListIterator<T>& other) const {
-        return node == other.node;
-    }
-
-    friend bool operator==(const SLListIterator<T>& a, const SLListIterator<T>& b) {
-        return a.isEqual(b);
-    }
-
-    friend bool operator!=(const SLListIterator<T>& a, const SLListIterator<T>& b) {
-        return !a.isEqual(b);
-    }
-
-    operator bool() {
-        shared_lock<shared_mutex> lock(node->m);
-        return node;
-    }
-
-    int debugRefCount()
-    {
-        return node->ref_count;
-    }
-
-private:
-    SLNode<T>* node = nullptr;
-    SLLinkedList<T>* list;
-
-    SLListIterator(SLNode<T>* node, SLLinkedList<T>* list) noexcept {
-        this->node = node;
-        this->node->acquire();
-        this->list = list;
-    }
-};
+        //    return *this;
+        //}
 
 
+        SLListIterator& operator++() {
 
-template <typename T>
-class SLLinkedList
-{
+            if (!node->next) throw (out_of_range("Invalid index"));
 
-    friend class SLListIterator<T>;
-    friend class SLPurgatory<T>;
-    friend class SLNode<T>;
-public:
-    using iterator = SLListIterator<T>;
+            if (node && node != list->tail) {
+                SLNode<T>* prevNode = nullptr;
+                {
+                    list->global_mutex.rlock();
+                    SLNode<T>* newNode = node->next;
 
-    SLLinkedList() : head(new SLNode<T>(this)), tail(new SLNode<T>(this)), m_size(0), purgatory(new SLPurgatory<T>(this)) {
-
-        tail->prev = head;
-        head->next = tail;
-
-        tail->acquire();
-        head->acquire();
-        tail->acquire();
-        head->acquire();
-    }
-
-    SLLinkedList(const SLLinkedList& other) = delete;
-    SLLinkedList(SLLinkedList&& x) = delete;
-    SLLinkedList(initializer_list<T> l) : SLLinkedList() {
-        iterator it(head);
-        for (auto item : l) {
-            push_back(item);
-        }
-    }
-
-    ~SLLinkedList() {
-        delete purgatory;
-
-        SLNode<T>* nextNode;
-        for (auto it = head; it != tail; it = nextNode) {
-            nextNode = it->next;
-            delete it;
-        }
-        delete tail;
-    }
-
-    void erase(iterator it) {
-
-        SLNode<T>* node = it.node;
-
-        if (node == head || node == tail) return;
-
-        SLNode<T>* prev = nullptr;
-        SLNode<T>* next = nullptr;
-
-        for (bool retry = true; retry;) {
-            retry = false;
-            {
-                node->m.rlock();
-                if (node->deleted == true) {
-                    node->m.unlock();
-                    return;
+                    prevNode = node;
+                    newNode->acquire();
+                    node = newNode;
+                    list->global_mutex.unlock();
                 }
-                prev = node->prev;
-                prev->acquire();
-                next = node->next;
-                next->acquire();
-                assert(prev && prev->ref_count);
-                assert(next && next->ref_count);
+                prevNode->release();
+            }
+            return *this;
+        }
+
+        SLListIterator operator++(int) {
+
+            SLListIterator temp = *this;
+
+            if (!node->next) throw (out_of_range("Invalid index"));
+
+            if (node && node != list->tail) {
+                SLNode<T>* prevNode = nullptr;
+                {
+                    list->global_mutex.rlock();
+                    SLNode<T>* newNode = node->next;
+
+                    prevNode = node;
+                    newNode->acquire();
+                    node = newNode;
+                    list->global_mutex.unlock();
+                }
+                prevNode->release();
             }
 
-            {
-                prev->m.wlock();
-                node->m.rlock();
+            return temp;
+        }
+
+        SLListIterator& operator--() {
+
+            if (!node->prev) throw out_of_range("Invalid index");
+
+            if (node && node != list->head) {
+                SLNode<T>* prevNode = nullptr;
+                {
+                    list->global_mutex.rlock();
+                    SLNode<T>* newNode = node->prev;
+
+                    prevNode = node;
+                    newNode->acquire();
+                    node = newNode;
+
+                    list->global_mutex.unlock();
+                }
+                prevNode->release();
+            }
+
+            return *this;
+        }
+
+        SLListIterator operator--(int) {
+            SLListIterator temp = *this;
+
+            if (node && node != list->head) {
+                SLNode<T>* prevNode = nullptr;
+                {
+                    list->global_mutex.rlock();
+                    SLNode<T>* newNode = node->prev;
+
+                    prevNode = node;
+                    newNode->acquire();
+                    node = newNode;
+
+                    list->global_mutex.unlock();
+                }
+                prevNode->release();
+            }
+
+            return temp;
+        }
+
+        bool isEqual(const SLListIterator<T>& other) const {
+            return node == other.node;
+        }
+
+        friend bool operator==(const SLListIterator<T>& a, const SLListIterator<T>& b) {
+            return a.isEqual(b);
+        }
+
+        friend bool operator!=(const SLListIterator<T>& a, const SLListIterator<T>& b) {
+            return !a.isEqual(b);
+        }
+
+        operator bool() {
+            shared_lock<shared_mutex> lock(node->m);
+            return node;
+        }
+
+        int debugRefCount()
+        {
+            return node->ref_count;
+        }
+
+    private:
+        SLNode<T>* node = nullptr;
+        SLLinkedList<T>* list;
+
+        SLListIterator(SLNode<T>* node, SLLinkedList<T>* list) noexcept {
+            this->node = node;
+            this->node->acquire();
+            this->list = list;
+        }
+    };
+
+
+
+    template <typename T>
+    class SLLinkedList
+    {
+
+        friend class SLListIterator<T>;
+        friend class SLPurgatory<T>;
+        friend class SLNode<T>;
+    public:
+        using iterator = SLListIterator<T>;
+
+        SLLinkedList() : head(new SLNode<T>(this)), tail(new SLNode<T>(this)), m_size(0), purgatory(new SLPurgatory<T>(this)) {
+
+            tail->prev = head;
+            head->next = tail;
+
+            tail->acquire();
+            head->acquire();
+            tail->acquire();
+            head->acquire();
+        }
+
+        SLLinkedList(const SLLinkedList& other) = delete;
+        SLLinkedList(SLLinkedList&& x) = delete;
+        SLLinkedList(initializer_list<T> l) : SLLinkedList() {
+            iterator it(head);
+            for (auto item : l) {
+                push_back(item);
+            }
+        }
+
+        ~SLLinkedList() {
+            delete purgatory;
+
+            SLNode<T>* nextNode;
+            for (auto it = head; it != tail; it = nextNode) {
+                nextNode = it->next;
+                delete it;
+            }
+            delete tail;
+        }
+
+        void erase(iterator it) {
+
+            SLNode<T>* node = it.node;
+
+            if (node == head || node == tail) return;
+
+            SLNode<T>* prev = nullptr;
+            SLNode<T>* next = nullptr;
+
+            for (bool retry = true; retry;) {
+                retry = false;
+                {
+                    node->m.rlock();
+                    if (node->deleted == true) {
+                        node->m.unlock();
+                        return;
+                    }
+                    prev = node->prev;
+                    prev->acquire();
+                    next = node->next;
+                    next->acquire();
+                    assert(prev && prev->ref_count);
+                    assert(next && next->ref_count);
+                }
+
+                {
+                    prev->m.wlock();
+                    node->m.rlock();
+                    next->m.wlock();
+
+                    if (prev->next == node && next->prev == node) {
+
+                        prev->next = next;
+
+                        next->acquire();
+
+                        next->prev = prev;
+
+                        prev->acquire();
+
+                        node->deleted = true;
+                        node->release();
+                        node->release();
+                        --m_size;
+
+                    }
+                    else {
+                        retry = true;
+                    }
+                    prev->m.unlock();
+                    node->m.unlock();
+                    next->m.unlock();
+                }
+
+                prev->release();
+                next->release();
+            }
+        }
+        void push_front(T value) {
+            iterator it(head);
+            insert(it, value);
+        }
+
+        void push_back(T value) {
+            SLNode<T>* node = tail->prev;
+            iterator it(node);
+            insert(it, value);
+        }
+
+        // Returns iterator on inserted node
+        void insert(iterator it, T value) {
+            SLNode<T>* prev = it.node;
+
+            if (prev == tail) {
+                prev = prev->prev;
+            }
+
+            if (prev == nullptr) return;
+            prev->m.wlock();
+
+            SLNode<T>* next = nullptr;
+
+            for (bool retry = true; retry;) {
+                retry = false;
+
+                next = prev->next;
                 next->m.wlock();
 
-                if (prev->next == node && next->prev == node) {
-
-                    prev->next = next;
-
-                    next->acquire();
-
-                    next->prev = prev;
-
-                    prev->acquire();
-
-                    node->deleted = true;
-                    node->release();
-                    node->release();
-                    --m_size;
-
-                }
-                else {
+                if (next->prev != prev) {
                     retry = true;
                 }
-                prev->m.unlock();
-                node->m.unlock();
-                next->m.unlock();
             }
 
-            prev->release();
-            next->release();
-        }
-    }
-    void push_front(T value) {
-        iterator it(head);
-        insert(it, value);
-    }
+            SLNode<T>* node = new SLNode<T>(value, this);
 
-    void push_back(T value) {
-        SLNode<T>* node = tail->prev;
-        iterator it(node);
-        insert(it, value);
-    }
+            node->prev = prev;
+            node->next = next;
 
-    // Returns iterator on inserted node
-    void insert(iterator it, T value) {
-        SLNode<T>* prev = it.node;
+            prev->next = node;
+            node->acquire();
+            next->prev = node;
+            node->acquire();
 
-        if (prev == tail) {
-            prev = prev->prev;
+            ++m_size;
+
+            prev->m.unlock();
+            next->m.unlock();
+
+            return;
         }
 
-        if (prev == nullptr) return;
-        prev->m.wlock();
+        iterator begin() {
 
-        SLNode<T>* next = nullptr;
 
-        for (bool retry = true; retry;) {
-            retry = false;
-
-            next = prev->next;
-            next->m.wlock();
-
-            if (next->prev != prev) {
-                retry = true;
-            }
+            head->m.rlock();
+            auto node = head->next;
+            head->m.unlock();
+            return iterator(node);
         }
 
-        SLNode<T>* node = new SLNode<T>(value, this);
+        iterator end() {
 
-        node->prev = prev;
-        node->next = next;
+            tail->m.rlock();
+            auto node = tail;
+            tail->m.unlock();
+            return iterator(node);
+        }
 
-        prev->next = node;
-        node->acquire();
-        next->prev = node;
-        node->acquire();
+        bool empty() {
+            return m_size == 0;
+        }
 
-        ++m_size;
+        std::size_t size() {
+            return m_size;
+        }
 
-        prev->m.unlock();
-        next->m.unlock();
-
-        return;
-    }
-
-    iterator begin() {
-
-
-        head->m.rlock();
-        auto node = head->next;
-        head->m.unlock();
-        return iterator(node);
-    }
-
-    iterator end() {
-
-        tail->m.rlock();
-        auto node = tail;
-        tail->m.unlock();
-        return iterator(node);
-    }
-
-    bool empty() {
-        return m_size == 0;
-    }
-
-    std::size_t size() {
-        return m_size;
-    }
-
-private:
-    SLNode<T>* head = nullptr;
-    SLNode<T>* tail = nullptr;
-    SLPurgatory<T>* purgatory;
-    std::atomic<std::size_t> m_size = 0;
-    rwlock_t global_mutex;
-};
+    private:
+        SLNode<T>* head = nullptr;
+        SLNode<T>* tail = nullptr;
+        SLPurgatory<T>* purgatory;
+        std::atomic<std::size_t> m_size = 0;
+        rwlock_t global_mutex;
+    };
