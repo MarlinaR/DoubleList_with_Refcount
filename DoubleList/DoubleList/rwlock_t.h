@@ -1,17 +1,14 @@
 #pragma once
-
-
-
 #ifndef RWLOCK_T_H
 #define RWLOCK_T_H
-#include <atomic>
 
+#include <atomic>
 #include <thread>
 
-	struct rwlock_t {
+struct rwlock_t {
 	public:
 		std::atomic<uint32_t> val = 0;
-		uint32_t WRITE_BIT = (1 << 31);
+		const static uint32_t WRITE_BIT = (1 << 31);
 
 		rwlock_t() {
 			val = 0;
